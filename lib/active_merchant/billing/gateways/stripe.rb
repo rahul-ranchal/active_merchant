@@ -142,6 +142,73 @@ module ActiveMerchant #:nodoc:
         end
       end
 
+      def update_customer_shipping_address(options)
+        requires!(options, :customer_profile_id)
+        requires!(options, :address)
+        customer_id = options[:customer_profile_id]
+
+        shiping_params = build_shiping_address(options[:address])
+        commit(:post, "customers/#{CGI.escape(customer_id)}", shiping_params)
+      end
+
+      def create_customer_shipping_address(options)
+        requires!(options, :customer_profile_id)
+        requires!(options, :address)
+        customer_id = options[:customer_profile_id]
+
+        shiping_params = build_shiping_address(options[:address])
+        commit(:post, "customers/#{CGI.escape(customer_id)}", shiping_params)
+      end
+
+      def create_customer_profile(options)
+        requires!(options, :profile)
+        requires!(options[:profile], :email)
+        requires!(options[:profile], :description) unless options[:profile][:email]
+        profile_params = {email: options[:profile][:email], description: options[:profile][:description]}
+
+        commit(:post, "customers", profile_params)
+
+      end
+
+      def create_customer_payment_profile(options)
+        requires!(options, :customer_profile_id)
+        requires!(options, :payment_profile)
+        requires!(options[:payment_profile], :payment)
+        customer_id = options[:customer_profile_id]
+        card_data = {}
+        creditcard = options[:payment_profile][:payment][:credit_card]
+        add_creditcard(card_data, creditcard, { address: options[:payment_profile][:bill_to] })
+        commit(:post, "customers/#{CGI.escape(customer_id)}/sources", card_data)
+      end
+
+      def update_customer_payment_profile(options)
+        requires!(options, :customer_profile_id)
+        requires!(options, :payment_profile)
+        requires!(options[:payment_profile], :payment)
+        customer_id = options[:customer_profile_id]
+        customer_payment_profile_id = options[:payment_profile][:customer_payment_profile_id]
+        card_data = {}
+        creditcard = options[:payment_profile][:payment][:credit_card]
+        add_creditcard(card_data, creditcard, { address: options[:payment_profile][:bill_to] })
+        commit(:post, "customers/#{CGI.escape(customer_id)}/sources/#{CGI.escape(customer_payment_profile_id)}", card_data[:card])
+      end
+
+      def get_customer_payment_profile(options)
+        requires!(options, :customer_profile_id)
+        requires!(options, :customer_payment_profile_id)
+        customer_id = options[:customer_profile_id]
+        customer_payment_profile_id = options[:customer_payment_profile_id]
+
+        commit(:get, "customers/#{CGI.escape(customer_id)}/sources/#{CGI.escape(customer_payment_profile_id)}")
+      end
+
+      def get_customer_profile(options)
+        requires!(options, :customer_profile_id)
+        customer_id = options[:customer_profile_id]
+
+        commit(:get, "customers/#{CGI.escape(customer_id)}")
+      end
+
       private
 
       def create_post_for_auth_or_purchase(money, creditcard, options)
@@ -187,6 +254,7 @@ module ActiveMerchant #:nodoc:
           post[:card][:address_zip] = address[:zip] if address[:zip]
           post[:card][:address_state] = address[:state] if address[:state]
           post[:card][:address_city] = address[:city] if address[:city]
+          post[:card][:name] = address[:name] if address[:name]
         end
       end
 
@@ -196,13 +264,12 @@ module ActiveMerchant #:nodoc:
           if creditcard.respond_to?(:track_data) && creditcard.track_data.present?
             card[:swipe_data] = creditcard.track_data
           else
-            card[:number] = creditcard.number
-            card[:exp_month] = creditcard.month
-            card[:exp_year] = creditcard.year
+            card[:number] = creditcard.number unless creditcard.number.blank?
+            card[:exp_month] = creditcard.month unless creditcard.month.blank?
+            card[:exp_year] = creditcard.year unless creditcard.year.blank?
             card[:cvc] = creditcard.verification_value if creditcard.verification_value?
             card[:name] = creditcard.name if creditcard.name
           end
-
           post[:card] = card
           add_address(post, options)
         elsif creditcard.kind_of?(String)
@@ -319,6 +386,22 @@ module ActiveMerchant #:nodoc:
             "message" => msg
           }
         }
+      end
+
+      def build_shiping_address(sp_params)
+        data = {}
+        sp_param = {}
+        sp_param[:line1] = sp_params[:address]
+        sp_param[:city] = sp_params[:city]
+        sp_param[:country] = sp_params[:country]
+        sp_param[:state] = sp_params[:state]
+        sp_param[:postal_code] = sp_params[:zip]
+        data[:shipping] = {
+            address: sp_param,
+            name: sp_params[:name],
+            phone: sp_params[:phone_number]
+        }
+        data
       end
     end
   end
