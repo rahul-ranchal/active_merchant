@@ -164,10 +164,9 @@ module ActiveMerchant #:nodoc:
         requires!(options, :profile)
         requires!(options[:profile], :email)
         requires!(options[:profile], :description) unless options[:profile][:email]
-        profile_params = {email: options[:profile][:email], description: options[:profile][:description]}
+        profile_params = { email: options[:profile][:email], description: options[:profile][:description] }
 
         commit(:post, "customers", profile_params)
-
       end
 
       def create_customer_payment_profile(options)
@@ -209,7 +208,49 @@ module ActiveMerchant #:nodoc:
         commit(:get, "customers/#{CGI.escape(customer_id)}")
       end
 
+      def create_customer_profile_transaction(options)
+        requires!(options, :transaction)
+        requires!(options[:transaction], :type)
+        requires!(options[:transaction], :amount, :customer_profile_id, :customer_payment_profile_id)
+        options[:customer] = options[:transaction][:customer_profile_id]
+        case options[:transaction][:type]
+        when :refund
+          requires!(options[:transaction], :trans_id) &&
+              (
+              (options[:transaction][:customer_profile_id] && options[:transaction][:customer_payment_profile_id]) ||
+                  options[:transaction][:credit_card_number_masked] ||
+                  (options[:transaction][:bank_routing_number_masked] && options[:transaction][:bank_account_number_masked])
+              )
+          amount = (options[:transaction][:amount] * 100).to_i #cents
+          post = {:amount => amount}
+          identification = options[:transaction][:trans_id]
+          commit(:post, "charges/#{CGI.escape(identification)}/refund", post, options)
+        else
+          requires!(options[:transaction], :amount, :customer_profile_id, :customer_payment_profile_id)
+
+          # authorize(money, creditcard, options = {})
+          response = autherize_charge(options)
+          # capture(money, creditcard, options = {})
+          post = {}
+          authorization = response.params['id']
+          add_application_fee(post, options)
+          commit(:post, "charges/#{CGI.escape(authorization)}/capture", post, options)
+        end
+      end
+
       private
+
+
+      def autherize_charge(options)
+        post = {}
+        creditcard = options[:transaction][:customer_payment_profile_id]
+        amount = (options[:transaction][:amount] * 100).to_i #cents
+        add_amount(post, amount, options)
+        add_creditcard(post, creditcard, options)
+        add_customer(post, creditcard, options)
+        post[:capture] = "false"
+        commit(:post, 'charges', post, options)
+      end
 
       def create_post_for_auth_or_purchase(money, creditcard, options)
         post = {}
